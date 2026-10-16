@@ -1,4 +1,91 @@
-# 협업 및 코딩 컨벤션 가이드 (Unreal Engine)
+# 🩸 THE LAST DROP
+
+> **언리얼 엔진 5.5 기반 3 vs 1 비대칭 생존 멀티플레이 게임**  
+> 스파르타 코딩클럽 내배캠 언리얼 트랙 8기 6팀 CH4 프로젝트 · 5인 팀 · C++
+
+---
+
+## 🎬 플레이 영상
+
+[![THE LAST DROP 플레이 영상](https://img.youtube.com/vi/x58mv0OopYU/0.jpg)](https://www.youtube.com/watch?v=x58mv0OopYU)
+
+---
+
+## 📖 게임 소개
+
+킬러 1명과 생존자 3명이 대결하는 비대칭 멀티플레이 게임입니다.
+킬러는 생존자를 공격해 쓰러뜨린 뒤 업어 옮겨 케이지에 가두고, 생존자는 서로를 치료하고 케이지에서 구출하며 탈출을 노립니다.
+
+**핵심 루프**: 공격 → 쓰러짐(Downed) → 운반(Carry) → 케이지(Cage) → 구출 / 탈출
+
+---
+
+## 🙋 내 담당 — 이상기 (킬러 · 운반 · 케이지 시스템)
+
+> 공격 → Downed → Carry → Cage로 이어지는 핵심 루프를 **서버 권위 기반 상태 전이**로 구현했습니다.
+
+### 상태 설계
+
+킬러 · 생존자 · 케이지가 각자의 상태를 책임지고, 상태 변화에 필요한 이동 · 충돌 · 복제를 함께 처리합니다.
+
+| 대상 | 상태 | 역할 |
+|---|---|---|
+| **Killer** (`EKillerState`) | Idle · Attacking · Groggy · PickingUp · Carrying · Interacting | 공격, 운반, 케이지 상호작용 관리 |
+| **Survivor** (`ESurvivorState`) | Healthy · Injured · Downed · Carried · Caged · Dead · Escaped | 생존자 개인의 생애 주기 관리 |
+| **Cage** (`ECageStatus`) | Empty · Occupied · Dead | 점유 상태와 갇힌 생존자(`TrappedSurvivor`) 복제 |
+
+**흐름**: 클라이언트 요청 → 서버 검증 → 상태값 복제 → 애니메이션 · UI 반영
+
+- `Server_Attack` / `Server_Interact` (Server RPC)로 입력을 서버에서 검증
+- `SetKillerState`가 상태를 서버 기준으로 바꾸고, `CurrentState`를 `ReplicatedUsing`으로 복제
+- `UpdateMovementSpeed`가 Carrying · Groggy 상태의 이동 속도 배율 반영
+- 그로기 몽타주 · 케이지 위치 · 갇힌 포즈는 Multicast RPC로 모든 클라이언트에 동기화
+
+### 문제 해결 — 운반 중 이동 불능
+
+- **문제**: 생존자를 업은 킬러가 이동하지 못하고 `CharacterMovement` stuck 경고가 반복됨
+- **판단**: 운반 상태에서도 생존자의 이동과 콜리전이 남아 킬러의 이동 판정과 충돌
+- **처리**: 업을 때(`AttachCarriedSurvivor`) 생존자의 이동 · 충돌을 끄고, 내려놓을 때(`DropSurvivor`) 충돌 · 이동 모드를 명시적으로 복구
+
+```cpp
+// AttachCarriedSurvivor
+if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
+{
+    MoveComp->DisableMovement();
+}
+for (auto* Comp : Primitives)
+{
+    Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+}
+
+// DropSurvivor
+Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+MoveComp->SetMovementMode(MOVE_Walking);
+```
+
+### 주요 코드
+
+| 파일 | 내용 |
+|---|---|
+| [`KillerCharacter.cpp`](Source/SpaCh4/Private/Characters/Killer/KillerCharacter.cpp) | 킬러 상태 머신, 공격 · 운반, 서버 RPC |
+| [`Cage.cpp`](Source/SpaCh4/Private/Gameplay/Cage/Cage.cpp) | 케이지 점유 · 복제 |
+| [`SurvivorCharacter.cpp`](Source/SpaCh4/Private/Characters/Survivor/SurvivorCharacter.cpp) | 생존자 상태와 케이지 · 치료 상호작용 (공동 작업) |
+
+---
+
+## 🛠 개발 환경
+
+| 항목 | 내용 |
+|---|---|
+| 엔진 | Unreal Engine 5.5 |
+| 언어 | C++ |
+| 네트워크 | Replication · RPC (서버 권위) |
+| 형상 관리 | Git / GitHub |
+
+---
+
+# 📐 협업 및 코딩 컨벤션
+
 
 
 ## 1. 브랜치 전략
