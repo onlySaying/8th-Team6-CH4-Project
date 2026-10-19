@@ -100,7 +100,7 @@ void USPEOSSessionSubsystem::Login()
 		LocalUserNum,
 		FOnLoginCompleteDelegate::CreateUObject(this, &USPEOSSessionSubsystem::HandleLoginComplete));
 
-	// 외부 브라우저의 EOS 계정 포털을 사용하는 로그인 자격 정보를 구성합니다.
+	// Steam은 실행 중인 클라이언트 계정으로 로그인하므로 자격 정보 타입은 사용되지 않습니다.
 	FOnlineAccountCredentials Credentials;
 	Credentials.Type = TEXT("accountportal");
 
@@ -109,7 +109,7 @@ void USPEOSSessionSubsystem::Login()
 	{
 		IdentityInterface->ClearOnLoginCompleteDelegate_Handle(LocalUserNum, LoginCompleteDelegateHandle);
 		LoginCompleteDelegateHandle.Reset();
-		OnLoginCompleted.Broadcast(false, TEXT("Failed to start EOS login."));
+		OnLoginCompleted.Broadcast(false, TEXT("Failed to start Steam login. Steam 클라이언트가 실행 중인지 확인하세요."));
 	}
 }
 
@@ -148,7 +148,7 @@ void USPEOSSessionSubsystem::StartMatchmaking(ELobbyPlayerRole SelectedRole, con
 	// 로그인 전이라면 매칭 요청을 유지한 채 EOS 로그인을 먼저 시작합니다.
 	if (!IsLoggedIn())
 	{
-		BroadcastMatchmakingStatus(true, TEXT("EOS 로그인 중입니다."));
+		BroadcastMatchmakingStatus(true, TEXT("Steam 로그인 확인 중입니다."));
 		Login();
 		return;
 	}
@@ -230,7 +230,7 @@ void USPEOSSessionSubsystem::StartSession()
 	// EOS 세션은 대기 상태에서만 시작할 수 있으므로 다른 상태는 경고 후 중단합니다.
 	if (SessionState != EOnlineSessionState::Pending)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("EOS session cannot start from state %d."), static_cast<int32>(SessionState));
+		UE_LOG(LogTemp, Warning, TEXT("Steam session cannot start from state %d."), static_cast<int32>(SessionState));
 		return;
 	}
 
@@ -248,7 +248,7 @@ void USPEOSSessionSubsystem::StartSession()
 	{
 		SessionInterface->ClearOnStartSessionCompleteDelegate_Handle(StartSessionCompleteDelegateHandle);
 		StartSessionCompleteDelegateHandle.Reset();
-		UE_LOG(LogTemp, Warning, TEXT("Failed to start EOS session."));
+		UE_LOG(LogTemp, Warning, TEXT("Failed to start Steam session."));
 	}
 }
 
@@ -269,7 +269,7 @@ void USPEOSSessionSubsystem::EndSession()
 	const EOnlineSessionState::Type SessionState = SessionInterface->GetSessionState(NAME_GameSession);
 	if (SessionState == EOnlineSessionState::Ended || SessionState == EOnlineSessionState::NoSession)
 	{
-		OnSessionEnded.Broadcast(true, TEXT("EOS session is already ended."));
+		OnSessionEnded.Broadcast(true, TEXT("Steam session is already ended."));
 		return;
 	}
 
@@ -295,7 +295,7 @@ void USPEOSSessionSubsystem::EndSession()
 		SessionInterface->ClearOnEndSessionCompleteDelegate_Handle(EndSessionCompleteDelegateHandle);
 		EndSessionCompleteDelegateHandle.Reset();
 		bEndSessionInProgress = false;
-		OnSessionEnded.Broadcast(false, TEXT("Failed to start EOS session end."));
+		OnSessionEnded.Broadcast(false, TEXT("Failed to start Steam session end."));
 	}
 }
 
@@ -694,7 +694,7 @@ void USPEOSSessionSubsystem::HandleLoginComplete(int32 LocalUserNumber, bool bWa
 	// 로그인 실패 시 원인 메시지를 전달하고 대기 중인 매칭 상태를 종료합니다.
 	if (!bWasSuccessful)
 	{
-		const FString Message = Error.IsEmpty() ? TEXT("EOS login failed.") : Error;
+		const FString Message = Error.IsEmpty() ? TEXT("Steam login failed. Steam 클라이언트가 실행 중인지 확인하세요.") : Error;
 		OnLoginCompleted.Broadcast(false, Message);
 		BroadcastMatchmakingStatus(false, Message);
 		bStartMatchmakingAfterLogin = false;
@@ -726,13 +726,13 @@ void USPEOSSessionSubsystem::HandleFindSessionsComplete(bool bWasSuccessful)
 	// 검색 실패 또는 결과 객체 손실 시 재검색 정책으로 처리를 넘깁니다.
 	if (!bWasSuccessful || !SessionSearch.IsValid())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("EOS FindSessions failed. Attempt=%d/%d"), FindSessionAttemptCount, MaxFindSessionAttempts);
+		UE_LOG(LogTemp, Warning, TEXT("Steam FindSessions failed. Attempt=%d/%d"), FindSessionAttemptCount, MaxFindSessionAttempts);
 		HandleFindSessionsRetry();
 		return;
 	}
 
 	// 검색 횟수와 전체 결과 수를 로그에 기록해 매칭 과정을 추적합니다.
-	UE_LOG(LogTemp, Warning, TEXT("EOS FindSessions complete. Attempt=%d/%d Results=%d"), FindSessionAttemptCount, MaxFindSessionAttempts, SessionSearch->SearchResults.Num());
+	UE_LOG(LogTemp, Warning, TEXT("Steam FindSessions complete. Attempt=%d/%d Results=%d"), FindSessionAttemptCount, MaxFindSessionAttempts, SessionSearch->SearchResults.Num());
 
 	// 검색 결과를 순회하며 프로젝트 세션 키와 공개 빈자리가 모두 유효한 방을 찾습니다.
 	for (const FOnlineSessionSearchResult& SearchResult : SessionSearch->SearchResults)
@@ -740,7 +740,7 @@ void USPEOSSessionSubsystem::HandleFindSessionsComplete(bool bWasSuccessful)
 		FString SessionType;
 		SearchResult.Session.SessionSettings.Get(SPEOSSession::MatchSessionKey, SessionType);
 
-		UE_LOG(LogTemp, Warning, TEXT("EOS Found Session Type=%s Open=%d Owner=%s"),
+		UE_LOG(LogTemp, Warning, TEXT("Steam Found Session Type=%s Open=%d Owner=%s"),
 			*SessionType,
 			SearchResult.Session.NumOpenPublicConnections,
 			*SearchResult.Session.OwningUserName);
@@ -773,7 +773,7 @@ void USPEOSSessionSubsystem::HandleCreateSessionComplete(FName SessionName, bool
 	if (!bWasSuccessful)
 	{
 		bIsMatchmakingActive = false;
-		BroadcastMatchmakingStatus(false, TEXT("EOS 세션 생성에 실패했습니다."));
+		BroadcastMatchmakingStatus(false, TEXT("Steam 세션 생성에 실패했습니다."));
 		return;
 	}
 
@@ -797,7 +797,7 @@ void USPEOSSessionSubsystem::HandleJoinSessionComplete(FName SessionName, EOnJoi
 	if (Result != EOnJoinSessionCompleteResult::Success || !SessionInterface.IsValid())
 	{
 		bIsMatchmakingActive = false;
-		BroadcastMatchmakingStatus(false, TEXT("EOS 세션 참가에 실패했습니다."));
+		BroadcastMatchmakingStatus(false, TEXT("Steam 세션 참가에 실패했습니다."));
 		return;
 	}
 
@@ -806,7 +806,7 @@ void USPEOSSessionSubsystem::HandleJoinSessionComplete(FName SessionName, EOnJoi
 	if (!SessionInterface->GetResolvedConnectString(NAME_GameSession, ConnectString) || ConnectString.IsEmpty())
 	{
 		bIsMatchmakingActive = false;
-		BroadcastMatchmakingStatus(false, TEXT("EOS 세션 접속 주소를 가져오지 못했습니다."));
+		BroadcastMatchmakingStatus(false, TEXT("Steam 세션 접속 주소를 가져오지 못했습니다."));
 		return;
 	}
 
@@ -835,7 +835,7 @@ void USPEOSSessionSubsystem::HandleStartSessionComplete(FName SessionName, bool 
 	StartSessionCompleteDelegateHandle.Reset();
 
 	// 시작 성공 여부를 로그에 남겨 호스트의 세션 상태 전환을 추적합니다.
-	UE_LOG(LogTemp, Log, TEXT("EOS session start completed: %s"), bWasSuccessful ? TEXT("Success") : TEXT("Failed"));
+	UE_LOG(LogTemp, Log, TEXT("Steam session start completed: %s"), bWasSuccessful ? TEXT("Success") : TEXT("Failed"));
 }
 
 void USPEOSSessionSubsystem::HandleEndSessionComplete(FName SessionName, bool bWasSuccessful)
@@ -852,7 +852,7 @@ void USPEOSSessionSubsystem::HandleEndSessionComplete(FName SessionName, bool bW
 	// 세션 종료 결과를 UI와 게임 흐름을 구독하는 객체에 전달합니다.
 	OnSessionEnded.Broadcast(
 		bWasSuccessful,
-		bWasSuccessful ? TEXT("EOS session ended. Match level remains loaded.") : TEXT("EOS session end failed."));
+		bWasSuccessful ? TEXT("Steam session ended. Match level remains loaded.") : TEXT("Steam session end failed."));
 
 	// 메인 메뉴 복귀가 예약되어 있다면 세션 제거와 레벨 이동을 이어서 수행합니다.
 	if (bDestroySessionAfterEnd)
@@ -881,12 +881,12 @@ void USPEOSSessionSubsystem::HandleDestroySessionComplete(FName SessionName, boo
 	// 제거 실패 시 후속 작업을 실행하지 않고 실패 결과만 전달합니다.
 	if (!bWasSuccessful)
 	{
-		OnSessionEnded.Broadcast(false, TEXT("EOS session destroy failed."));
+		OnSessionEnded.Broadcast(false, TEXT("Steam session destroy failed."));
 		return;
 	}
 
 	// 정상 제거 결과를 알린 뒤 예약된 작업을 우선순위에 따라 처리합니다.
-	OnSessionEnded.Broadcast(true, TEXT("EOS session ended."));
+	OnSessionEnded.Broadcast(true, TEXT("Steam session ended."));
 
 	// 기존 세션 정리 후 생성 요청이었다면 새 호스트 세션 생성을 이어갑니다.
 	if (bShouldCreateSession)

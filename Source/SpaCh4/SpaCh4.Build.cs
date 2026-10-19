@@ -26,7 +26,7 @@ public class SpaCh4 : ModuleRules
 		{
 			"Slate",
 			"SlateCore",
-			"OnlineSubsystemEOS"
+			"OnlineSubsystemSteam"
 		});
 	}
 }
