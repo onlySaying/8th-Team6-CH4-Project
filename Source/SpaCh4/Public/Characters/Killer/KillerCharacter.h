@@ -116,6 +116,8 @@ protected:
     void ApplyCarryAttachmentTransform(AActor* Target);
     void PickupSurvivor(AActor* Target);
     void DropSurvivor();
+    void SetIgnoreCarriedSurvivor(AActor* Target, bool bIgnore);
+    void PlaceDroppedSurvivor(ACharacter* Survivor) const;
     void HandlePickupAttachWindow();
     void HandlePickupMontageFinished();
     void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent);

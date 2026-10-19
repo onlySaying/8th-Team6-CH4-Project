@@ -495,23 +495,9 @@ void AKillerCharacter::AttachCarriedSurvivor(AActor* Target)
     if (!Survivor || Survivor->GetSurvivorState() != ESurvivorState::Downed) return;
     
     CarriedSurvivor = Target;
+    // Carried 상태 전환에서 생존자가 스스로 콜리전·이동을 끈다 (클라이언트는 OnRep에서 동일하게 처리)
     Survivor->SetSurvivorState(ESurvivorState::Carried);
-    
-    // 1. 생존자의 무브먼트 비활성화
-    if (UCharacterMovementComponent* MoveComp = Survivor->GetCharacterMovement())
-    {
-        MoveComp->DisableMovement(); 
-    }
-
-    // 2. [추가] 생존자의 콜리전을 완전히 끄거나 킬러와의 충돌을 무시
-    // 방법 A: 모든 콜리전 끄기 (권장)
-    TArray<UPrimitiveComponent*> Primitives;
-    Survivor->GetComponents<UPrimitiveComponent>(Primitives);
-    for (auto* Comp : Primitives)
-    {
-        // 킬러와 충돌하지 않도록 설정
-        Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision); 
-    }
+    SetIgnoreCarriedSurvivor(Survivor, true);
 
     ApplyCarryAttachmentTransform(CarriedSurvivor);
 }
@@ -582,6 +568,54 @@ void AKillerCharacter::ApplyCarryAttachmentTransform(AActor* Target)
     Target->SetActorRelativeLocation(FVector(150.f, 0.f, 0.f));
 }
 
+void AKillerCharacter::SetIgnoreCarriedSurvivor(AActor* Target, bool bIgnore)
+{
+    if (!Target)
+    {
+        return;
+    }
+
+    if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+    {
+        Capsule->IgnoreActorWhenMoving(Target, bIgnore);
+    }
+}
+
+void AKillerCharacter::PlaceDroppedSurvivor(ACharacter* Survivor) const
+{
+    UWorld* World = GetWorld();
+    if (!Survivor || !World)
+    {
+        return;
+    }
+
+    const UCapsuleComponent* KillerCapsule = GetCapsuleComponent();
+    const UCapsuleComponent* SurvivorCapsule = Survivor->GetCapsuleComponent();
+    const float KillerRadius = KillerCapsule ? KillerCapsule->GetScaledCapsuleRadius() : 42.f;
+    const float SurvivorRadius = SurvivorCapsule ? SurvivorCapsule->GetScaledCapsuleRadius() : 42.f;
+    const float SurvivorHalfHeight = SurvivorCapsule ? SurvivorCapsule->GetScaledCapsuleHalfHeight() : 88.f;
+    const float KillerHalfHeight = KillerCapsule ? KillerCapsule->GetScaledCapsuleHalfHeight() : 88.f;
+
+    // 킬러 정면, 두 캡슐이 닿지 않는 거리. 발 높이는 킬러 기준으로 맞춘다
+    const FVector Forward = GetActorForwardVector().GetSafeNormal2D();
+    FVector DropLocation = GetActorLocation() + Forward * (KillerRadius + SurvivorRadius + 20.f);
+    DropLocation.Z += SurvivorHalfHeight - KillerHalfHeight;
+    FRotator DropRotation(0.f, GetActorRotation().Yaw + 180.f, 0.f);
+
+    // 생존자 콜리전은 아직 꺼져 있으므로 캡슐 모양으로 직접 스윕해 정면 벽 앞에서 멈춘다
+    const FVector SweepStart(GetActorLocation().X, GetActorLocation().Y, DropLocation.Z);
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(KillerDropSurvivor), false, this);
+    Params.AddIgnoredActor(Survivor);
+    FHitResult Hit;
+    if (World->SweepSingleByChannel(
+        Hit, SweepStart, DropLocation, FQuat::Identity, ECC_Pawn,
+        FCollisionShape::MakeCapsule(SurvivorRadius, SurvivorHalfHeight), Params))
+    {
+        DropLocation = Hit.Location;
+    }
+    Survivor->SetActorLocationAndRotation(DropLocation, DropRotation, false, nullptr, ETeleportType::TeleportPhysics);
+}
+
 void AKillerCharacter::PickupSurvivor(AActor* Target)
 {
     if (!CarriedSurvivor)
@@ -645,18 +679,12 @@ void AKillerCharacter::DropSurvivor()
 
     if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
     {
-        // 1.Detach 하기 전에 먼저 상태를 복구시도
+        // 1. 분리 후 킬러와 겹치지 않는 위치로 먼저 옮긴다 (겹친 채 콜리전이 켜지면 튕김)
         Survivor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-        
-        // 2. 콜리전 우선 복구
-        Survivor->SetActorEnableCollision(true);
-        TArray<UPrimitiveComponent*> Primitives;
-        Survivor->GetComponents<UPrimitiveComponent>(Primitives);
-        for (auto* Comp : Primitives)
-        {
-            Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-            Comp->SetCollisionResponseToAllChannels(ECR_Block);
-        }
+        PlaceDroppedSurvivor(Survivor);
+        SetIgnoreCarriedSurvivor(Survivor, false);
+
+        // 2. 콜리전은 Downed 전환 시 RestoreAfterConfinement가 BP에 설정된 값으로 복구
 
         // 3. 무브먼트 완전 초기화 (가장 중요)
         if (UCharacterMovementComponent* MoveComp = Survivor->FindComponentByClass<UCharacterMovementComponent>())
@@ -826,9 +854,16 @@ void AKillerCharacter::OnRep_CarriedSurvivor(AActor* PreviousCarriedSurvivor)
             PreviousMovement->NetworkSmoothingMode = ENetworkSmoothingMode::Exponential;
         }
     }
+    SetIgnoreCarriedSurvivor(PreviousCarriedSurvivor, false);
 
     if (CarriedSurvivor)
     {
+        // 생존자 상태 복제보다 이 값이 먼저 도착해도 킬러 이동이 막히지 않게 바로 콜리전을 끈다
+        if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
+        {
+            Survivor->ApplyCarriedCollision();
+        }
+        SetIgnoreCarriedSurvivor(CarriedSurvivor, true);
         ApplyCarryAttachmentTransform(CarriedSurvivor);
         if (CarryAnimComponent)
         {
@@ -992,13 +1027,8 @@ void AKillerCharacter::ProcessCageDeposit(ACage* TargetCage)
     GetWorldTimerManager().SetTimer(TimerHandle, [this, TargetCage]() {
         if (ASurvivorCharacter* Survivor = Cast<ASurvivorCharacter>(CarriedSurvivor))
         {
-            TArray<UPrimitiveComponent*> Primitives;
-            Survivor->GetComponents<UPrimitiveComponent>(Primitives);
-            for (auto* Comp : Primitives)
-            {
-                Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-            }
-            
+            // 콜리전을 다시 켜지 않고 그대로 케이지로 넘긴다 (EnterCaged가 갇힌 상태로 유지)
+            SetIgnoreCarriedSurvivor(Survivor, false);
             Survivor->EnterCaged(TargetCage);
         }
         TargetCage->SetCageStatus(ECageStatus::Occupied);

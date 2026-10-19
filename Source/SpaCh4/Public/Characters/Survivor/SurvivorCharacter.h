@@ -64,6 +64,9 @@ public:
 	bool IsHealing() const;
 	bool IsChannelingHealing() const;
 	int GetCagedCount() const { return CagedCount; }
+
+	// 업혀 있는 동안 콜리전·이동을 끈다. 서버와 모든 클라이언트에서 같은 결과가 나와야 함
+	void ApplyCarriedCollision();
 	int32 GetSelectedSlotIndex() const { return SelectedSlotIndex; }
 
 	const USurvivorData* GetSurvivorData() const { return SurvivorData; }

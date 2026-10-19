@@ -758,6 +758,10 @@ void ASurvivorCharacter::SetSurvivorState(ESurvivorState NewState)
 		MovementComponent->HandleStateTransition(OldState, NewState);
 	}
 	RestoreAfterConfinement(OldState, NewState);
+	if (NewState == ESurvivorState::Carried)
+	{
+		ApplyCarriedCollision();
+	}
 
 	if (InteractionComponent)
 	{
@@ -871,6 +875,10 @@ void ASurvivorCharacter::OnRep_SurvivorState(ESurvivorState OldState)
 		MovementComponent->HandleStateTransition(OldState, SurvivorState);
 	}
 	RestoreAfterConfinement(OldState, SurvivorState);
+	if (SurvivorState == ESurvivorState::Carried)
+	{
+		ApplyCarriedCollision();
+	}
 	ApplyStateEffects();
 
 	if (InjuredSoundComponent)
@@ -910,6 +918,27 @@ void ASurvivorCharacter::ApplyStateEffects()
 	if (MovementComponent)
 	{
 		MovementComponent->SnapToTargetSpeed();
+	}
+}
+
+void ASurvivorCharacter::ApplyCarriedCollision()
+{
+	// 서버에서만 끄면 킬러 클라이언트의 이동 예측이 붙어 있는 생존자 캡슐에 막혀 스턱이 생김
+	TArray<UPrimitiveComponent*> PrimitiveComponents;
+	GetComponents<UPrimitiveComponent>(PrimitiveComponents);
+	for (UPrimitiveComponent* Primitive : PrimitiveComponents)
+	{
+		if (Primitive)
+		{
+			Primitive->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
+	}
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->StopMovementImmediately();
+		MoveComp->DisableMovement();
+		MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
 	}
 }
 
