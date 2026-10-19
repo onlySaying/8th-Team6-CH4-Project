@@ -29,7 +29,7 @@ namespace SPUIStyleLibrary
 	template<typename TObject>
 	TObject* GetValidObjectPtr(const TObjectPtr<TObject>& Ptr)
 	{
-		if (Ptr.IsNull())
+		if (!Ptr)
 		{
 			return nullptr;
 		}

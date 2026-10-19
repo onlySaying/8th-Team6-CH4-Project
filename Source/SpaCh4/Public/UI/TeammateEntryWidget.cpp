@@ -107,7 +107,7 @@ namespace TeammateEntryWidgetPrivate
 	template<typename T>
 	T* GetValidObjectPtr(const TObjectPtr<T>& Ptr)
 	{
-		if (Ptr.IsNull())
+		if (!Ptr)
 		{
 			return nullptr;
 		}

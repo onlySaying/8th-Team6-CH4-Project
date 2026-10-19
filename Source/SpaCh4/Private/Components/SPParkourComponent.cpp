@@ -2261,7 +2261,7 @@ bool USPParkourComponent::ExtractMontageRootMotionAtTime(
 	}
 
 	MontageTime = FMath::Clamp(MontageTime, 0.f, Montage->GetPlayLength());
-	const FTransform RootDelta = Montage->ExtractRootMotionFromTrackRange(0.f, MontageTime);
+	const FTransform RootDelta = Montage->ExtractRootMotionFromTrackRange(0.f, MontageTime, FAnimExtractContext());
 	OutTranslation = RootDelta.GetTranslation();
 	OutRotation = RootDelta.GetRotation();
 	return true;
