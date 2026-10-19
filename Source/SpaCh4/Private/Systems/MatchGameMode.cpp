@@ -6,6 +6,7 @@
 #include "TimerManager.h"
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/PlayerState.h"
+#include "GameFramework/GameStateBase.h"
 #include "Gameplay/Escape/SPHatchManagerSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "Player/LDPlayerState.h"
@@ -48,13 +49,43 @@ void AMatchGameMode::BeginPlay()
 	}
 }
 
+namespace MatchGameModeDebug
+{
+	// 로비를 거치지 않고 매치 레벨에서 바로 PIE를 시작한 경우: 첫 플레이어는 살인마, 나머지는 생존자
+	static void AssignPIERoleIfMissing(const UWorld* World, const AGameStateBase* InGameState, ALDPlayerState* PlayerState)
+	{
+#if !UE_BUILD_SHIPPING
+		if (!World || !World->IsPlayInEditor() || !InGameState || !PlayerState
+			|| PlayerState->GetPlayerRole() != ELobbyPlayerRole::None)
+		{
+			return;
+		}
+
+		bool bHasKiller = false;
+		for (const APlayerState* Other : InGameState->PlayerArray)
+		{
+			const ALDPlayerState* OtherLD = Cast<ALDPlayerState>(Other);
+			if (OtherLD && OtherLD != PlayerState && OtherLD->GetPlayerRole() == ELobbyPlayerRole::Killer)
+			{
+				bHasKiller = true;
+				break;
+			}
+		}
+		PlayerState->SetPlayerRole(bHasKiller ? ELobbyPlayerRole::Survivor : ELobbyPlayerRole::Killer);
+		UE_LOG(LogTemp, Warning, TEXT("[PIE] 로비 역할 없음 → %s 로 지정"), bHasKiller ? TEXT("Survivor") : TEXT("Killer"));
+#endif
+	}
+}
+
 UClass* AMatchGameMode::GetDefaultPawnClassForController_Implementation(AController* InController)
 {
 	if (IsValid(InController) == false)
 	{
 		return Super::GetDefaultPawnClassForController_Implementation(InController);
 	}
-	const ALDPlayerState* PlayerState = InController->GetPlayerState<ALDPlayerState>();
+	ALDPlayerState* MutablePlayerState = InController->GetPlayerState<ALDPlayerState>();
+	MatchGameModeDebug::AssignPIERoleIfMissing(GetWorld(), GameState, MutablePlayerState);
+	const ALDPlayerState* PlayerState = MutablePlayerState;
 	if (PlayerState == nullptr)
 	{
 		return Super::GetDefaultPawnClassForController_Implementation(InController);
